@@ -1,0 +1,61 @@
+===========================================
+ 2JZ → BMW E92 CAN Translator — Wiring
+===========================================
+
+Schemat podłączenia tekstowy:
+
+ESP32 DevKitC                MCP2515/TJA1050              OBD-II (BMW E92)
+┌──────────────┐              ┌─────────────────┐           ┌──────────────┐
+│              │              │                 │           │              │
+│  GPIO26 (TX) ├─────────────►│ TXD             │           │              │
+│              │              │                 │           │              │
+│  GPIO27 (RX) ├─────────────►│ RXD             │           │              │
+│              │              │                 │           │              │
+│  GPIO5 (CS)  ├─────────────►│ CS              │           │              │
+│              │              │                 │           │              │
+│  GPIO18 (SCK)├─────────────►│ SCK             │           │              │
+│              │              │                 │           │              │
+│  GPIO19 (MISO)◄─────────────┤ SO              │           │              │
+│              │              │                 │           │              │
+│  GPIO23 (MOSI)├────────────►│ SI              │           │              │
+│              │              │                 │           │              │
+│  GND         ├─────────────►│ GND             │           │              │
+│              │              │                 │           │              │
+│  5V / VIN    │              │ VCC             │           │              │
+│              │              │                 │           │              │
+│              │              │ CANH ───────────┼──────────►│ Pin 6 (CANH) │
+│              │              │                 │           │              │
+│              │              │ CANL ───────────┼──────────►│ Pin 14 (CANL)│
+│              │              │                 │           │              │
+└──────────────┘              └─────────────────┘           └──────────────┘
+
+
+UWAGI:
+─────
+1. TJA1050 = logika 5V. RXD wyjście = 5V. ESP32 = 3.3V, ale GPIO jest 5V-tolerant
+   (większość modułów DevKitC). W razie problemów — level shifter 5V→3.3V na RXD.
+
+2. Pinout SPI MCP2515 może być oznaczony inaczej:
+   - SCK = CLK
+   - MOSI = DI lub SI
+   - MISO = DO lub SO
+   Sprawdź silkscreen!
+
+3. Terminacja 120Ω:
+   ────────────────────
+   W autach są już terminatory CAN. Dodaj 120Ω TYLKO jeśli tworzysz nową magistralę.
+   Sprawdź opór między CANH a CANL — powinien wynosić ~60Ω (2× 120Ω równolegle).
+
+4. CAN Speed: 500 kbps (BMW E9x powertrain)
+
+5. Zasilanie:
+   ──────────
+   - USB 5V (port na ESP32 DevKitC) — wystarczy do testów
+   - Step-down 12V→5V — w samochodzie (podłącz do palców 12V, np. w OBD lub bezpiecznik)
+
+6. OBD-II Pinout (standard ISO 15765-4 / ISO 11898-2):
+   ─────────────────────────────────────────────────────
+   Pin 6  = CAN High (CANH)
+   Pin 14 = CAN Low (CANL)
+   Pin 4  = Ground (masa)
+   Pin 16 = Battery +12V (zawsze pod napięciem)

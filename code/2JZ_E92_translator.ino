@@ -24,6 +24,24 @@
 #include <SPI.h>
 #include <mcp2515.h>
 
+// ─── Watchdog (opcjonalny) ────────────────────────────────────────
+// Włącz watchdog timer (auto-restart przy zawieszeniu) odkomentowując
+// WATCHDOG_ENABLED. Wymaga esp_task_wdt (wbudowane ESP32).
+// #define WATCHDOG_ENABLED
+
+#ifdef WATCHDOG_ENABLED
+#include <esp_task_wdt.h>
+#define WDT_TIMEOUT_S  10
+#endif
+
+// ─── OTA (opcjonalny) ─────────────────────────────────────────────
+// Włącz aktualizację OTA (przez WiFi) odkomentowując OTA_ENABLED.
+// Wymaga ArduinoOTA (wbudowane ESP32).
+// #define OTA_ENABLED
+
+#ifdef OTA_ENABLED
+#include <ArduinoOTA.h>
+#endif
 // ─── WiFi / Web GUI (opcjonalny) ──────────────────────────────────
 // Włącz obsługę dashboardu webowego (ESP32 jako AP) odkomentowując
 // WIFI_ENABLED. Wymaga bibliotek WiFi + WebServer (wbudowane ESP32).
@@ -206,6 +224,14 @@ void setup() {
   Serial.println(F("[OK] Nasłuchiwanie magistraly 2JZ..."));
   Serial.println(F("[OK] Wysyłanie do magistraly BMW E92..."));
   Serial.println();
+#ifdef WATCHDOG_ENABLED
+  esp_task_wdt_init(WDT_TIMEOUT_S, true);
+  esp_task_wdt_add(NULL);
+#endif
+#ifdef OTA_ENABLED
+  ArduinoOTA.setHostname("2jz-e92-translator");
+  ArduinoOTA.begin();
+#endif
 #ifdef WIFI_ENABLED
   setupWiFi();
   Serial.print(F("[OK] WiFi AP: ")); Serial.println(WiFi.softAPIP());
@@ -240,6 +266,12 @@ void loop() {
 
 #ifdef WIFI_ENABLED
   if (wifiReady) webServer.handleClient();
+#endif
+#ifdef OTA_ENABLED
+  ArduinoOTA.handle();
+#endif
+#ifdef WATCHDOG_ENABLED
+  esp_task_wdt_reset();
 #endif
   static unsigned long lastDebugTime = 0;
   if (millis() - lastDebugTime >= 5000) {

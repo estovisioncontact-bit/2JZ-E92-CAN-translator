@@ -63,6 +63,9 @@ bool rpmUpdated = false;
 bool speedUpdated = false;
 bool tempUpdated = false;
 
+// Licznik ramki 0x1A0 (bity 52-55, zakres 0..14 — patrz issue #5)
+uint8_t speedCounter = 0;
+
 // ─── Setup ─────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
@@ -119,12 +122,12 @@ void loop() {
 void processIncomingFrame() {
   switch (canMsg.can_id) {
     case TOYOTA_ID_RPM:
-      // RPM z Toyota 2JZ — parsowanie zależy od formatu ECU
-      // Wzór: RPM = (B2*256+B3) / 6.4  (dla Speeduino)
-      // Dla fabrycznego ECU Toyota format może być inny — dostosuj!
+      // Silnik z ramki 2JZ. Wartość zapisywana BEZ ZMIAN i konwertowana
+      // tylko raz, na miejscu transmisji (issue #6) — bez stratnej rundy
+      // raw→rpm→raw, której pośrednie `raw * 10` przepełniało uint16_t
+      // powyżej ~1048 rpm.
+      // UWAGA: format ramki 2JZ jest niezweryfikowany (issue #15).
       rpm_2jz = (canMsg.data[2] << 8) | canMsg.data[3];
-      // Konwersja do formatu BMW (jeśli ECU Toyota użyje innej skali)
-      rpm_2jz = rpm_2jz * 10 / 64;  // Odwrócenie skali BMW
       rpmUpdated = true;
       break;
 
@@ -169,9 +172,11 @@ void sendBMWData() {
 
 // ─── Ramka RPM (0x316 — DME1) ─────────────────────────────────────
 void sendRPM() {
-  // Konwersja do formatu BMW: RPM * 6.4 (z zabezpieczeniem przepełnienia)
+  // BMW DME1 (0x316) bity 16-31 = silnik jako raw = RPM * 6.4
+  // (bmw_e9x_e8x.dbc dekoduje (B2*256+B3)/6.4; Speeduino koduje RPM*64/10).
+  // Pojedyncza konwersja, pośrednia 32-bitowa (issue #6).
   uint32_t temp_RPM = (uint32_t)rpm_2jz * 64UL / 10U;
-  if (temp_RPM > 0xFFFF) temp_RPM = 0xFFFF;  // Clamp do uint16_t
+  if (temp_RPM > 0xFFFF) temp_RPM = 0xFFFF;  // pole 16-bitowe
 
   outMsg.can_id  = BMW_ID_RPM;
   outMsg.can_dlc = 8;
@@ -193,22 +198,39 @@ void sendRPM() {
   }
 }
 
-// ─── Ramka prędkości (0x1A0 — Speed) ──────────────────────────────
-void sendSpeed() {
-  // Konwersja do formatu BMW: km/h * 100 (z zabezpieczeniem przepełnienia)
-  uint32_t temp_speed = (uint32_t)speed_2jz_kmh * 100UL;
-  if (temp_speed > 0xFFFF) temp_speed = 0xFFFF;  // Clamp do uint16_t
+// ─── Suma kontrolna PT-CAN (issue #5) ─────────────────────────────
+// Best-effort XOR po bajtach 0..6. Dokładny algorytm stosowany przez
+// odbiornik NIE został potwierdzony z przechwytu — zweryfikuj na realnej
+// ramce 0x1A0 przed poleganiem na tym.
+static uint8_t bmwChecksum(const uint8_t *d) {
+  uint8_t c = 0;
+  for (uint8_t i = 0; i < 7; i++) c ^= d[i];
+  return c;
+}
 
+// ─── Ramka prędkości (0x1A0 — Speed, DSC) ─────────────────────────
+// Layout wg bmw_e9x_e8x.dbc (BO_ 416 Speed):
+//   bity  0-11  VehicleSpeed   12-bit LE signed, factor 0.103 km/h
+//   bit   12    MovingForward
+//   bit   13    MovingReverse
+//   bity 16-51  AccY / AccX / YawRate (nieużywane)
+//   bity 52-55  Counter_0x1a0  (0..14)
+//   bity 56-63  Checksum_0x1a0
+void sendSpeed() {
+  // 12-bitowa wartość: raw = km/h / 0.103 — NIE km/h * 100 (issue #5)
+  uint32_t raw = (uint32_t)(speed_2jz_kmh / 0.103f);
+  if (raw > 0x0FFF) raw = 0x0FFF;               // pole 12-bitowe
+
+  for (uint8_t i = 0; i < 8; i++) outMsg.data[i] = 0x00;
   outMsg.can_id  = BMW_ID_SPEED;
   outMsg.can_dlc = 8;
-  outMsg.data[0] = lowByte(temp_speed);        // Speed low byte
-  outMsg.data[1] = highByte(temp_speed);       // Speed high byte
-  outMsg.data[2] = 0x00;
-  outMsg.data[3] = 0x00;
-  outMsg.data[4] = 0x00;
-  outMsg.data[5] = 0x00;
-  outMsg.data[6] = 0x00;
-  outMsg.data[7] = 0x00;
+  outMsg.data[0] = (uint8_t)(raw & 0xFF);
+  outMsg.data[1] = (uint8_t)((raw >> 8) & 0x0F);          // bity 0-11
+  if (speed_2jz_kmh > 0) outMsg.data[1] |= 0x10;          // bit 12 MovingForward
+  outMsg.data[6] = (uint8_t)((speedCounter & 0x0F) << 4); // bity 52-55 licznik
+  outMsg.data[7] = bmwChecksum(outMsg.data);              // bity 56-63 suma kontrolna
+
+  speedCounter = (speedCounter >= 14) ? 0 : (uint8_t)(speedCounter + 1);
 
   if (mcp2515.sendMessage(&outMsg) == MCP2515::ERROR_OK) {
     Serial.print(F("[TX] Speed: "));

@@ -24,6 +24,22 @@
 #include <SPI.h>
 #include <mcp2515.h>
 
+// ─── Wyświetlacz OLED (opcjonalny) ────────────────────────────────
+// Włącz obsługę wyświetlacza OLED SSD1306 (I2C, 128x64) odkomentowując
+// DISPLAY_ENABLED. Wymaga bibliotek Adafruit SSD1306 + Adafruit GFX.
+// #define DISPLAY_ENABLED
+
+#ifdef DISPLAY_ENABLED
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#define OLED_WIDTH   128
+#define OLED_HEIGHT   64
+#define OLED_ADDR    0x3C
+static Adafruit_SSD1306 oled(OLED_WIDTH, OLED_HEIGHT, &Wire, -1);
+static bool oledReady = false;
+#endif
+
 // ─── Konfiguracja kwarcu MCP2515 (issue #11) ──────────────────────
 // Większość modułów MCP2515+TJA1050 ma kwarc 16 MHz; niektóre 8 MHz.
 // Ustaw zgodnie z modułem: MCP_8MHZ lub MCP_16MHZ.
@@ -99,6 +115,18 @@ void setup() {
   Serial.println(F("[OK] Nasłuchiwanie magistraly 2JZ..."));
   Serial.println(F("[OK] Wysyłanie do magistraly BMW E92..."));
   Serial.println();
+
+#ifdef DISPLAY_ENABLED
+  if (oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    oledReady = true;
+    oled.clearDisplay();
+    oled.setTextSize(1);
+    oled.setTextColor(SSD1306_WHITE);
+    oled.setCursor(0, 0);
+    oled.println(F("2JZ->BMW E92"));
+    oled.display();
+  }
+#endif
 }
 
 // ─── Loop ──────────────────────────────────────────────────────────
@@ -121,6 +149,15 @@ void loop() {
     lastDebugTime = millis();
     printDebugInfo();
   }
+
+#ifdef DISPLAY_ENABLED
+  // Odśwież wyświetlacz OLED co 200 ms
+  static unsigned long lastDisplayTime = 0;
+  if (oledReady && (millis() - lastDisplayTime >= 200)) {
+    lastDisplayTime = millis();
+    updateDisplay();
+  }
+#endif
 }
 
 // ─── Przetwarzanie przychodzących ramek ──────────────────────────
@@ -271,6 +308,22 @@ void sendCoolantTemp() {
     Serial.println(F("[ERR] Nie udało się wysłać temperatury"));
   }
 }
+
+#ifdef DISPLAY_ENABLED
+// ─── Odświeżanie wyświetlacza OLED ────────────────────────────────
+void updateDisplay() {
+  if (!oledReady) return;
+  oled.clearDisplay();
+  oled.setTextSize(1);
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setCursor(0, 0);
+  oled.println(F("2JZ -> BMW E92"));
+  oled.print(F("RPM: ")); oled.println(rpm_2jz);
+  oled.print(F("Speed: ")); oled.print(speed_2jz_kmh); oled.println(F(" km/h"));
+  oled.print(F("Coolant: ")); oled.print(coolant_temp_c); oled.println(F(" C"));
+  oled.display();
+}
+#endif
 
 // ─── Debug info ───────────────────────────────────────────────────
 void printDebugInfo() {

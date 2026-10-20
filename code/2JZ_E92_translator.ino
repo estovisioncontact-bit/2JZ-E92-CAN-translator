@@ -82,7 +82,10 @@ void handleStatus() {
   json += "\"rpm\":" + String(rpm_2jz) + ",";
   json += "\"speed\":" + String(speed_2jz_kmh) + ",";
   json += "\"coolant\":" + String(coolant_temp_c) + ",";
-  json += "\"rxrate\":42,\"txrate\":20,\"errors\":0,\"lastrx\":0.05";
+  json += "\"oil\":" + String(coolant_temp_c) + ",";  // TODO: oil temp sensor
+  json += "\"rxrate\":42,\"txrate\":20,\"errors\":0,\"lastrx\":0.05,";
+  json += "\"rxcount\":1234,\"txcount\":567,\"clients\":1,\"uptime\":0,";
+  json += "\"torque\":0,\"voltage\":13.8";
   json += "}";
   webServer.send(200, "application/json", json);
 }

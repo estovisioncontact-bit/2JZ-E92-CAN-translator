@@ -9,8 +9,8 @@ Tabela CAN ID używanych w magistrali powertrain BMW E9x (E8x) na podstawie proj
 | CAN ID | Nazwa | Opis | Bajty | Skalowanie | Jednostka |
 |--------|-------|------|-------|------------|-----------|
 | 0x316 | DME1 | RPM, moment obrotowy, status silnika | 0-7 | RPM: (B2*256+B3)/6.4 | RPM, Nm, % |
-| 0x1A0 | Speed | Prędkość pojazdu | 0-7 | (B0*256+B1)/100 | km/h |
-| 0x1A0 | Speed | Prędkość pojazdu (alt) | 0-7 | (B0*256+B1)/100 | km/h |
+| 0x1A0 | Speed | Prędkość pojazdu | 0-7 | (B0 | (B1 & 0x0F)<<8) / 10 | km/h |
+| 0x1A0 | Speed | Prędkość pojazdu (alt) | 0-7 | (B0 | (B1 & 0x0F)<<8) / 10 | km/h |
 | 0x19E | DME2 | Temperatura płynu, oleju | 0-7 | Patrz poniżej | °C |
 | 0x1D0 | EMS | Status silnika, hamulec | 0-7 | Mapa bitowa | — |
 
@@ -45,8 +45,8 @@ Ramka zawierająca prędkość pojazdu.
 
 | Bajt | Opis | Skalowanie | Jednostka |
 |------|------|------------|-----------|
-| 0 | Prędkość (low byte) | (B0*256+B1)/100 | km/h |
-| 1 | Prędkość (high byte) | (B0*256+B1)/100 | km/h |
+| 0 | Prędkość (low byte) | (B0 | (B1 & 0x0F)<<8) / 10 | km/h |
+| 1 | Prędkość (high byte) | (B0 | (B1 & 0x0F)<<8) / 10 | km/h |
 | 2-7 | Zarezerwowane / inne | — | — |
 
 #### 0x19E — DME2

@@ -202,23 +202,35 @@ void sendRPM() {
 // Best-effort XOR po bajtach 0..6. Dokładny algorytm stosowany przez
 // odbiornik NIE został potwierdzony z przechwytu — zweryfikuj na realnej
 // ramce 0x1A0 przed poleganiem na tym.
-static uint8_t bmwChecksum(const uint8_t *d) {
-  uint8_t c = 0;
-  for (uint8_t i = 0; i < 7; i++) c ^= d[i];
-  return c;
+static uint8_t bmwChecksum(uint16_t id, const uint8_t *d) {
+  // BMW PT-CAN additive checksum (bimmerforums, HeinrichG E65 Bosch doc):
+  //   checksum = (sum(bytes 0..6) - (0xFF - msg_id)) mod 255
+  // Verified against 0x1A0 example "00 80 00 50 00 02 80 F4":
+  //   sum = 0x152 = 338, (0xFF - 0x1A0) = -161  =>  338 - (-161) = 499
+  //   499 mod 255 = 244 = 0xF4  ✓
+  // Wynik w zakresie 0..254; 0xFF jest zarezerwowane jako wartość błędu.
+  uint16_t sum = 0;
+  for (uint8_t i = 0; i < 7; i++) sum += d[i];
+  int32_t val = (int32_t)sum + ((int32_t)id - 0xFF);
+  val %= 255;
+  if (val < 0) val += 255;
+  return (uint8_t)val;
 }
 
 // ─── Ramka prędkości (0x1A0 — Speed, DSC) ─────────────────────────
 // Layout wg bmw_e9x_e8x.dbc (BO_ 416 Speed):
-//   bity  0-11  VehicleSpeed   12-bit LE signed, factor 0.103 km/h
+//   bity  0-11  VehicleSpeed   12-bit LE signed, factor 0.1 km/h (10x)
 //   bit   12    MovingForward
 //   bit   13    MovingReverse
 //   bity 16-51  AccY / AccX / YawRate (nieużywane)
 //   bity 52-55  Counter_0x1a0  (0..14)
 //   bity 56-63  Checksum_0x1a0
 void sendSpeed() {
-  // 12-bitowa wartość: raw = km/h / 0.103 — NIE km/h * 100 (issue #5)
-  uint32_t raw = (uint32_t)(speed_2jz_kmh / 0.103f);
+  // 12-bitowa wartość: raw = km/h * 10 (factor 0.1) — NIE km/h * 100 (issue #5)
+  // Źródło: HeinrichG E65 (Bosch doc) + bimmerforums: 50 km/h -> 500 -> 0x1F4.
+  // Uwaga: bmw_e9x_e8x.dbc podaje factor 0.103 — to przybliżenie; realna
+  // wartość to 0.1 (10x).
+  uint32_t raw = (uint32_t)speed_2jz_kmh * 10U;
   if (raw > 0x0FFF) raw = 0x0FFF;               // pole 12-bitowe
 
   for (uint8_t i = 0; i < 8; i++) outMsg.data[i] = 0x00;
@@ -228,7 +240,7 @@ void sendSpeed() {
   outMsg.data[1] = (uint8_t)((raw >> 8) & 0x0F);          // bity 0-11
   if (speed_2jz_kmh > 0) outMsg.data[1] |= 0x10;          // bit 12 MovingForward
   outMsg.data[6] = (uint8_t)((speedCounter & 0x0F) << 4); // bity 52-55 licznik
-  outMsg.data[7] = bmwChecksum(outMsg.data);              // bity 56-63 suma kontrolna
+  outMsg.data[7] = bmwChecksum(BMW_ID_SPEED, outMsg.data); // bity 56-63 suma kontrolna
 
   speedCounter = (speedCounter >= 14) ? 0 : (uint8_t)(speedCounter + 1);
 

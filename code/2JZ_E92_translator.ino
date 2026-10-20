@@ -195,7 +195,9 @@ void sendRPM() {
 
 // ─── Ramka prędkości (0x1A0 — Speed) ──────────────────────────────
 void sendSpeed() {
-  uint16_t temp_speed = speed_2jz_kmh * 100;  // km/h * 100
+  // Konwersja do formatu BMW: km/h * 100 (z zabezpieczeniem przepełnienia)
+  uint32_t temp_speed = (uint32_t)speed_2jz_kmh * 100UL;
+  if (temp_speed > 0xFFFF) temp_speed = 0xFFFF;  // Clamp do uint16_t
 
   outMsg.can_id  = BMW_ID_SPEED;
   outMsg.can_dlc = 8;

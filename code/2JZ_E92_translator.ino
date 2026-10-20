@@ -169,7 +169,9 @@ void sendBMWData() {
 
 // ─── Ramka RPM (0x316 — DME1) ─────────────────────────────────────
 void sendRPM() {
-  uint16_t temp_RPM = rpm_2jz * 64UL / 10U;  // RPM * 6.4
+  // Konwersja do formatu BMW: RPM * 6.4 (z zabezpieczeniem przepełnienia)
+  uint32_t temp_RPM = (uint32_t)rpm_2jz * 64UL / 10U;
+  if (temp_RPM > 0xFFFF) temp_RPM = 0xFFFF;  // Clamp do uint16_t
 
   outMsg.can_id  = BMW_ID_RPM;
   outMsg.can_dlc = 8;
@@ -217,8 +219,9 @@ void sendSpeed() {
 
 // ─── Ramka temperatury (0x19E — DME2) ─────────────────────────────
 void sendCoolantTemp() {
-  // Konwersja: ((celsius + 48) * 4) / 3
-  uint8_t temp_coolant = ((coolant_temp_c + 48) * 4) / 3;
+  // Konwersja: ((celsius + 48) * 4) / 3 (z zabezpieczeniem przepełnienia)
+  uint16_t temp_coolant = ((uint16_t)coolant_temp_c + 48) * 4 / 3;
+  if (temp_coolant > 0xFF) temp_coolant = 0xFF;  // Clamp do uint8_t
 
   outMsg.can_id  = BMW_ID_COOLANT;
   outMsg.can_dlc = 8;
@@ -246,7 +249,7 @@ void printDebugInfo() {
   Serial.print(F("RPM: ")); Serial.println(rpm_2jz);
   Serial.print(F("Speed: ")); Serial.print(speed_2jz_kmh); Serial.println(F(" km/h"));
   Serial.print(F("Coolant: ")); Serial.print(coolant_temp_c); Serial.println(F(" °C"));
-  Serial.print(F("CAN rx: "));
-  Serial.println(mcp2515.getCanCtrlInterruptFlags() ? F("OK") : F("ERR"));
+  Serial.print(F("CAN tx errors: "));
+  Serial.println(mcp2515.getErrorFlags());
   Serial.println();
 }

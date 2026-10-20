@@ -4,7 +4,7 @@
 
 ### Cel projektu
 
-Tłumacz CAN (Controller Area Network) odczytuje sygnały analogowe z fabrycznego ECU silnika Toyota 2JZ (RPM, prędkość pojazdu, temperatura płynu chłodzącego) i przetwarza je na komunikaty CAN kompatybilne z magistralą BMW E92. Przetworzone dane są wysyłane do zegarów i systemu klimatyzacji BMW.
+Tłumacz CAN (Controller Area Network) odczytuje ramki CAN z fabrycznego ECU silnika Toyota 2JZ (RPM, prędkość pojazdu, temperatura płynu chłodzącego) i przetwarza je na komunikaty CAN kompatybilne z magistralą BMW E92. Przetworzone dane są wysyłane do zegarów i systemu klimatyzacji BMW.
 
 **Kluczowa zasada:** Fabryczny ECU 2JZ pozostaje nietknięty — nadal steruje silnikiem jak dotychczas. Tłumacz jedynie nasłuchuje (sniffruje) magistralę CAN i generuje nowe komunikaty dla peryferiów BMW. Systemy ABS/ESP działajają normalnie, ponieważ nie są modyfikowane.
 
@@ -130,8 +130,8 @@ Sygnał RPM z ECU 2JZ jest przetwarzany do formatu BMW E9x:
 
 ```cpp
 uint16_t temp_RPM = currentStatus.RPM * 64UL / 10U;  // RPM * 6.4
-outMsg.buf[2] = lowByte(temp_RPM);
-outMsg.buf[3] = highByte(temp_RPM);
+outMsg.data[2] = lowByte(temp_RPM);
+outMsg.data[3] = highByte(temp_RPM);
 ```
 
 **Wzór:** `RPM_BMW = RPM_2JZ * 6.4`

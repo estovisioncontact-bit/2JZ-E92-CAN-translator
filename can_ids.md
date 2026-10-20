@@ -35,8 +35,8 @@ Ramka zawierająca dane o obrotach silnika, momencie obrotowym i statusie.
 ```cpp
 // ECU 2JZ → BMW E9x
 uint16_t temp_RPM = currentStatus.RPM * 64UL / 10U;  // RPM * 6.4
-outMsg.buf[2] = lowByte(temp_RPM);   // low byte
-outMsg.buf[3] = highByte(temp_RPM);  // high byte
+outMsg.data[2] = lowByte(temp_RPM);   // low byte
+outMsg.data[3] = highByte(temp_RPM);  // high byte
 ```
 
 #### 0x1A0 — Speed
@@ -55,8 +55,8 @@ Ramka zawierająca temperatury.
 
 | Bajt | Opis | Skalowanie | Jednostka |
 |------|------|------------|-----------|
-| 0-1 | Temperatura płynu chłodzącego | ((B0*256+B1)/4-48)*3 | °C |
-| 2-3 | Temperatura oleju | ((B2*256+B3)/4-48)*3 | °C |
+| 0-1 | Temperatura płynu chłodzącego | ((B0*256+B1)*3/4)-48 | °C |
+| 2-3 | Temperatura oleju | ((B2*256+B3)*3/4)-48 | °C |
 | 4-7 | Inne | — | — |
 
 **Konwersja temperatury:**

@@ -198,7 +198,6 @@ void sendRPM() {
   }
 }
 
-// ─── Suma kontrolna PT-CAN (issue #5) ─────────────────────────────
 // ─── Suma kontrolna ramki BMW (PT-CAN) ────────────────────────────
 // Addytywna: (sum(bajty 0..6) - (0xFF - id)) mod 255. Zakres wyniku 0..254;
 // 0xFF jest zarezerwowane jako wartość błędu. Zweryfikowana na przykładzie

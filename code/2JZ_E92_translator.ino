@@ -2,7 +2,7 @@
  * 2JZ → BMW E92 CAN Translator
  * Scenariusz A: Fabryczny 2JZ ECU + tłumacz do zegarów/klimatyzacji
  *
- * Odczytuje sygnały analogowe z fabrycznego ECU 2JZ (RPM, prędkość, temperatura)
+ * Odczytuje ramki CAN z fabrycznego ECU 2JZ (RPM, prędkość, temperatura)
  * i wysyła je do zegarów BMW E92 w formacie CAN kompatybilnym z magistralą E9x.
  *
  * CAN speed: 500 kbps

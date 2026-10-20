@@ -24,7 +24,10 @@
 #include <SPI.h>
 #include <mcp2515.h>
 
-// ─── Konfiguracja pinów ────────────────────────────────────────────
+// ─── Konfiguracja kwarcu MCP2515 (issue #11) ──────────────────────
+// Większość modułów MCP2515+TJA1050 ma kwarc 16 MHz; niektóre 8 MHz.
+// Ustaw zgodnie z modułem: MCP_8MHZ lub MCP_16MHZ.
+#define MCP2515_CRYSTAL  MCP_16MHZ
 #define CAN_CS_PIN    5     // Chip Select
 #define CAN_INT_PIN   2     // Interrupt pin (opcjonalnie)
 
@@ -69,7 +72,9 @@ uint8_t speedCounter = 0;
 // ─── Setup ─────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
-  while (!Serial) { ; }  // Czekaj na Serial (native USB)
+  // Nie blokuj na Serial (issue #1) — na płytkach bez USB-Serial setup() wisi.
+  unsigned long serialWaitStart = millis();
+  while (!Serial && (millis() - serialWaitStart < 2000)) { ; }
 
   Serial.println(F("============================================"));
   Serial.println(F("  2JZ → BMW E92 CAN Translator"));
@@ -83,7 +88,7 @@ void setup() {
 
   // Inicjalizacja MCP2515
   mcp2515.reset();
-  mcp2515.setBitrate(CAN_500KBPS, MCP_8MHZ);
+  mcp2515.setBitrate(CAN_500KBPS, MCP2515_CRYSTAL);
   mcp2515.setNormalMode();
 
   // Filtruj tylko potrzebne ID z Toyota (opcjonalnie)
@@ -98,8 +103,8 @@ void setup() {
 
 // ─── Loop ──────────────────────────────────────────────────────────
 void loop() {
-  // Odbierz ramkę CAN z magistraly 2JZ
-  if (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
+  // Odbierz wszystkie ramki CAN z magistraly 2JZ (issue #8 — nie tylko jedną)
+  while (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
     lastRecvTime = millis();
     processIncomingFrame();
   }
@@ -151,23 +156,11 @@ void processIncomingFrame() {
 
 // ─── Wysyłanie danych do BMW E92 ─────────────────────────────────
 void sendBMWData() {
-  // Wyślij RPM
-  if (rpmUpdated) {
-    sendRPM();
-    rpmUpdated = false;
-  }
-
-  // Wyślij prędkość
-  if (speedUpdated) {
-    sendSpeed();
-    speedUpdated = false;
-  }
-
-  // Wyślij temperaturę
-  if (tempUpdated) {
-    sendCoolantTemp();
-    tempUpdated = false;
-  }
+  // Wysyłaj zawsze co interwał (issue #7) — nie tylko raz po aktualizacji,
+  // bo zegary potrzebują ciągłego strumienia ramek.
+  sendRPM();
+  sendSpeed();
+  sendCoolantTemp();
 }
 
 // ─── Ramka RPM (0x316 — DME1) ─────────────────────────────────────

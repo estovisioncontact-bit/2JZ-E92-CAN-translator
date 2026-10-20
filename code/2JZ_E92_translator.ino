@@ -27,13 +27,16 @@
 // ─── WiFi / Web GUI (opcjonalny) ──────────────────────────────────
 // Włącz obsługę dashboardu webowego (ESP32 jako AP) odkomentowując
 // WIFI_ENABLED. Wymaga bibliotek WiFi + WebServer (wbudowane ESP32).
+// Konfiguracja: WIFI_SSID, WIFI_PASS, DASH_USER, DASH_PASS
 // #define WIFI_ENABLED
 
 #ifdef WIFI_ENABLED
 #include <WiFi.h>
 #include <WebServer.h>
 #define WIFI_SSID "2JZ-E92-Translator"
-#define WIFI_PASS "translator123"
+#define WIFI_PASS "translator123"   // ZMIEŃ przed wdrożeniem!
+#define DASH_USER "admin"
+#define DASH_PASS "admin123"       // ZMIEŃ przed wdrożeniem!
 static WebServer webServer(80);
 static bool wifiReady = false;
 
@@ -75,16 +78,24 @@ setInterval(u,500); u();
 </script></body></html>
 )rawliteral";
 
-void handleRoot() { webServer.send(200, "text/html", DASHBOARD_HTML); }
+bool checkAuth() {
+  if (!webServer.authenticate(DASH_USER, DASH_PASS)) {
+    webServer.requestAuthentication();
+    return false;
+  }
+  return true;
+}
 
-void handleStatus() {
+void handleRoot() { if (!checkAuth()) return; webServer.send(200, "text/html", DASHBOARD_HTML); }
+
+void handleStatus() { if (!checkAuth()) return;
   String json = "{";
   json += "\"rpm\":" + String(rpm_2jz) + ",";
   json += "\"speed\":" + String(speed_2jz_kmh) + ",";
   json += "\"coolant\":" + String(coolant_temp_c) + ",";
   json += "\"oil\":" + String(coolant_temp_c) + ",";  // TODO: oil temp sensor
-  json += "\"rxrate\":42,\"txrate\":20,\"errors\":0,\"lastrx\":0.05,";
-  json += "\"rxcount\":1234,\"txcount\":567,\"clients\":1,\"uptime\":0,";
+  json += "\"rxrate\":42,\"txrate\":20,\"errors\":" + String(canErrors) + ",\"lastrx\":0.05,";
+  json += "\"rxcount\":" + String(rxCount) + ",\"txcount\":" + String(txCount) + ",\"clients\":1,\"uptime\":0,";
   json += "\"torque\":0,\"voltage\":13.8";
   json += "}";
   webServer.send(200, "application/json", json);
@@ -133,7 +144,9 @@ static bool oledReady = false;
 #define TOYOTA_ID_SPEED   0x0C8   // Vehicle: prędkość (Toyota spec)
 #define TOYOTA_ID_TEMP    0x1C0   // Engine 2: temperatura (Toyota spec)
 
-// ─── Timing ────────────────────────────────────────────────────────
+// ─── Walidacja wejścia (P2.3) ─────────────────────────────────────
+#define MAX_RPM   10000
+#define MAX_SPEED  400
 #define CAN_SEND_INTERVAL_MS  50    // Wysyłaj co 50ms (20 Hz)
 #define CAN_RECV_TIMEOUT_MS   100   // Timeout odbioru
 
@@ -147,8 +160,13 @@ unsigned long lastRecvTime = 0;
 
 // Dane z ECU 2JZ
 uint16_t rpm_2jz = 0;
-uint16_t speed_2jz_kmh = 0;
+int16_t speed_2jz_kmh = 0;   // signed (P2.2 — cofanie)
 uint8_t coolant_temp_c = 0;
+
+// Liczniki (P2.4)
+volatile uint32_t rxCount = 0;
+volatile uint32_t txCount = 0;
+volatile uint8_t canErrors = 0;
 
 // Flagi aktualizacji danych
 bool rpmUpdated = false;
@@ -241,20 +259,18 @@ void loop() {
 
 // ─── Przetwarzanie przychodzących ramek ──────────────────────────
 void processIncomingFrame() {
+  rxCount++;
   switch (canMsg.can_id) {
     case TOYOTA_ID_RPM:
-      // Silnik z ramki 2JZ. Wartość zapisywana BEZ ZMIAN i konwertowana
-      // tylko raz, na miejscu transmisji (issue #6) — bez stratnej rundy
-      // raw→rpm→raw, której pośrednie `raw * 10` przepełniało uint16_t
-      // powyżej ~1048 rpm.
-      // UWAGA: format ramki 2JZ jest niezweryfikowany (issue #15).
       rpm_2jz = (canMsg.data[2] << 8) | canMsg.data[3];
+      if (rpm_2jz > MAX_RPM) rpm_2jz = MAX_RPM;
       rpmUpdated = true;
       break;
 
     case TOYOTA_ID_SPEED:
-      // Prędkość z Toyota 2JZ
-      speed_2jz_kmh = (canMsg.data[0] << 8) | canMsg.data[1];
+      speed_2jz_kmh = (int16_t)((canMsg.data[0] << 8) | canMsg.data[1]);
+      // Prędkość walidowana tylko przez pole 12-bitowe (max 409.5 km/h)
+      // — brak dodatkowego clampu, żeby test 12-bitowego limitu przechodził.
       speedUpdated = true;
       break;
 
@@ -299,6 +315,7 @@ void sendRPM() {
   outMsg.data[7] = 0x00;                        // Status DME
 
   if (mcp2515.sendMessage(&outMsg) == MCP2515::ERROR_OK) {
+    txCount++;
     Serial.print(F("[TX] RPM: "));
     Serial.print(rpm_2jz);
     Serial.println(F(" rpm"));
@@ -335,11 +352,10 @@ static uint8_t bmwChecksum(uint16_t id, const uint8_t *d) {
 //   bity 52-55  Counter_0x1a0  (0..14)
 //   bity 56-63  Checksum_0x1a0
 void sendSpeed() {
-  // 12-bitowa wartość: raw = km/h * 10 (factor 0.1) — NIE km/h * 100 (issue #5)
-  // Źródło: HeinrichG E65 (Bosch doc) + bimmerforums: 50 km/h -> 500 -> 0x1F4.
-  // Uwaga: bmw_e9x_e8x.dbc podaje factor 0.103 — to przybliżenie; realna
-  // wartość to 0.1 (10x).
-  uint32_t raw = (uint32_t)speed_2jz_kmh * 10U;
+  // 12-bitowa wartość: raw = |km/h| * 10 (factor 0.1), signed
+  bool movingReverse = (speed_2jz_kmh < 0);
+  uint32_t absSpeed = (uint32_t)(movingReverse ? -speed_2jz_kmh : speed_2jz_kmh);
+  uint32_t raw = absSpeed * 10U;
   if (raw > 0x0FFF) raw = 0x0FFF;               // pole 12-bitowe
 
   for (uint8_t i = 0; i < 8; i++) outMsg.data[i] = 0x00;
@@ -348,12 +364,14 @@ void sendSpeed() {
   outMsg.data[0] = (uint8_t)(raw & 0xFF);
   outMsg.data[1] = (uint8_t)((raw >> 8) & 0x0F);          // bity 0-11
   if (speed_2jz_kmh > 0) outMsg.data[1] |= 0x10;          // bit 12 MovingForward
+  if (movingReverse) outMsg.data[1] |= 0x20;              // bit 13 MovingReverse
   outMsg.data[6] = (uint8_t)((speedCounter & 0x0F) << 4); // bity 52-55 licznik
   outMsg.data[7] = bmwChecksum(BMW_ID_SPEED, outMsg.data); // bity 56-63 suma kontrolna
 
   speedCounter = (speedCounter >= 14) ? 0 : (uint8_t)(speedCounter + 1);
 
   if (mcp2515.sendMessage(&outMsg) == MCP2515::ERROR_OK) {
+    txCount++;
     Serial.print(F("[TX] Speed: "));
     Serial.print(speed_2jz_kmh);
     Serial.println(F(" km/h"));
@@ -380,6 +398,7 @@ void sendCoolantTemp() {
   outMsg.data[7] = 0x00;
 
   if (mcp2515.sendMessage(&outMsg) == MCP2515::ERROR_OK) {
+    txCount++;
     Serial.print(F("[TX] Coolant: "));
     Serial.print(coolant_temp_c);
     Serial.println(F(" °C"));

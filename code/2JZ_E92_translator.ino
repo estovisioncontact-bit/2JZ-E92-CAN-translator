@@ -199,9 +199,10 @@ void sendRPM() {
 }
 
 // ─── Suma kontrolna PT-CAN (issue #5) ─────────────────────────────
-// Best-effort XOR po bajtach 0..6. Dokładny algorytm stosowany przez
-// odbiornik NIE został potwierdzony z przechwytu — zweryfikuj na realnej
-// ramce 0x1A0 przed poleganiem na tym.
+// ─── Suma kontrolna ramki BMW (PT-CAN) ────────────────────────────
+// Addytywna: (sum(bajty 0..6) - (0xFF - id)) mod 255. Zakres wyniku 0..254;
+// 0xFF jest zarezerwowane jako wartość błędu. Zweryfikowana na przykładzie
+// bimmerforums dla 0x1A0: "00 80 00 50 00 02 80 F4" -> 0xF4.
 static uint8_t bmwChecksum(uint16_t id, const uint8_t *d) {
   // BMW PT-CAN additive checksum (bimmerforums, HeinrichG E65 Bosch doc):
   //   checksum = (sum(bytes 0..6) - (0xFF - msg_id)) mod 255

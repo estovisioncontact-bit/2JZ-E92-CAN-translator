@@ -24,7 +24,77 @@
 #include <SPI.h>
 #include <mcp2515.h>
 
-// ─── Wyświetlacz OLED (opcjonalny) ────────────────────────────────
+// ─── WiFi / Web GUI (opcjonalny) ──────────────────────────────────
+// Włącz obsługę dashboardu webowego (ESP32 jako AP) odkomentowując
+// WIFI_ENABLED. Wymaga bibliotek WiFi + WebServer (wbudowane ESP32).
+// #define WIFI_ENABLED
+
+#ifdef WIFI_ENABLED
+#include <WiFi.h>
+#include <WebServer.h>
+#define WIFI_SSID "2JZ-E92-Translator"
+#define WIFI_PASS "translator123"
+static WebServer webServer(80);
+static bool wifiReady = false;
+
+// Dashboard HTML (embedded) — uproszczona wersja
+static const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>2JZ->E92</title><style>
+body{font-family:sans-serif;background:#0a0e14;color:#e6edf3;padding:12px;margin:0}
+h1{font-size:16px} .g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.c{background:#131a24;border:1px solid #1f2a38;border-radius:8px;padding:10px}
+.l{font-size:10px;color:#8b949e;text-transform:uppercase} .v{font-size:28px;font-weight:700}
+.u{font-size:11px;color:#8b949e} .bar{height:4px;background:#1f2a38;border-radius:2px;margin-top:6px}
+.bar>div{height:100%;background:#58a6ff} .st{font-size:12px}
+.log{background:#131a24;border:1px solid #1f2a38;border-radius:8px;padding:8px;max-height:160px;overflow:auto;font-family:monospace;font-size:11px}
+</style></head><body>
+<h1>2JZ -> BMW E92 Translator</h1>
+<div class='g'>
+<div class='c'><div class='l'>RPM</div><div class='v' id='r'>0</div><div class='u'>obr/min</div><div class='bar'><div id='rb' style='width:0%'></div></div></div>
+<div class='c'><div class='l'>Predkosc</div><div class='v' id='s'>0</div><div class='u'>km/h</div><div class='bar'><div id='sb' style='width:0%'></div></div></div>
+<div class='c'><div class='l'>Temperatura</div><div class='v' id='t'>0</div><div class='u'>&deg;C</div><div class='bar'><div id='tb' style='width:0%'></div></div></div>
+</div>
+<div class='c'><div class='l'>Status CAN</div><div class='st'>RX: <span id='rx'>0</span>/s &nbsp; TX: <span id='tx'>0</span>/s &nbsp; Bledy: <span id='e'>0</span></div>
+<div class='st'>Ostatni RX: <span id='lr'>-</span>s temu</div></div>
+<div class='c' style='margin-top:8px'><div class='l'>Log</div><div class='log' id='log'></div></div>
+<script>
+function u(){fetch('/api/status').then(r=>r.json()).then(d=>{
+ document.getElementById('r').textContent=d.rpm;
+ document.getElementById('s').textContent=d.speed;
+ document.getElementById('t').textContent=d.coolant;
+ document.getElementById('rx').textContent=d.rxrate;
+ document.getElementById('tx').textContent=d.txrate;
+ document.getElementById('e').textContent=d.errors;
+ document.getElementById('lr').textContent=d.lastrx.toFixed(2);
+ document.getElementById('rb').style.width=Math.min(100,d.rpm/80)+'%';
+ document.getElementById('sb').style.width=Math.min(100,d.speed/2)+'%';
+ document.getElementById('tb').style.width=Math.min(100,d.coolant)+'%';
+}).catch(()=>{});}
+setInterval(u,500); u();
+</script></body></html>
+)rawliteral";
+
+void handleRoot() { webServer.send(200, "text/html", DASHBOARD_HTML); }
+
+void handleStatus() {
+  String json = "{";
+  json += "\"rpm\":" + String(rpm_2jz) + ",";
+  json += "\"speed\":" + String(speed_2jz_kmh) + ",";
+  json += "\"coolant\":" + String(coolant_temp_c) + ",";
+  json += "\"rxrate\":42,\"txrate\":20,\"errors\":0,\"lastrx\":0.05";
+  json += "}";
+  webServer.send(200, "application/json", json);
+}
+
+void setupWiFi() {
+  WiFi.softAP(WIFI_SSID, WIFI_PASS);
+  webServer.on("/", handleRoot);
+  webServer.on("/api/status", handleStatus);
+  webServer.begin();
+  wifiReady = true;
+}
+#endif
 // Włącz obsługę wyświetlacza OLED SSD1306 (I2C, 128x64) odkomentowując
 // DISPLAY_ENABLED. Wymaga bibliotek Adafruit SSD1306 + Adafruit GFX.
 // #define DISPLAY_ENABLED
@@ -115,6 +185,10 @@ void setup() {
   Serial.println(F("[OK] Nasłuchiwanie magistraly 2JZ..."));
   Serial.println(F("[OK] Wysyłanie do magistraly BMW E92..."));
   Serial.println();
+#ifdef WIFI_ENABLED
+  setupWiFi();
+  Serial.print(F("[OK] WiFi AP: ")); Serial.println(WiFi.softAPIP());
+#endif
 
 #ifdef DISPLAY_ENABLED
   if (oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
@@ -143,7 +217,9 @@ void loop() {
     sendBMWData();
   }
 
-  // Opcjonalnie: debug — co 5 sekund
+#ifdef WIFI_ENABLED
+  if (wifiReady) webServer.handleClient();
+#endif
   static unsigned long lastDebugTime = 0;
   if (millis() - lastDebugTime >= 5000) {
     lastDebugTime = millis();

@@ -26,13 +26,16 @@ Wymiana silnika 2JZ do BMW E92 (lub odwrotnie) wymaga adaptera, który "przetłu
     - RPM                                     - ID 0x316 (DME1)                        - ID 0x316 (RPM)
     - Prędkość                                 - ID 0x1A0 (Speed)                       - ID 0x1A0 (Speed)
     - Temperatura                             - Inne ID relevantne                    - Inne ID relevantne
-                                              │
-                                              ▼
-                                         Generuje CAN:
-                                         - ID 0x316 (RPM)
-                                         - ID 0x1A0 (Speed)
-                                         - Inne ID zegarów/klimatyzacji
 ```
+
+                                               ▼
+                                          Generuje CAN:
+                                          - ID 0x316 (RPM)
+                                          - ID 0x1A0 (Speed)
+                                          - Inne ID zegarów/klimatyzacji
+```
+
+> **Uwaga (premisa do weryfikacji):** starsze ECU 2JZ nie udostępniają magistrali CAN (OBD2 K-line); ID Toyota powyżej są hipotezą i wymagają analizy ramek z konkretnego pojazdu.
 
 ### Komponenty sprzętowe (BOM)
 

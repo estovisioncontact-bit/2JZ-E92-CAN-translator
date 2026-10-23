@@ -152,7 +152,7 @@ static bool oledReady = false;
 // ID magistraly BMW E9x (odbierane przez zegary/klimatyzację)
 #define BMW_ID_RPM        0x316   // DME1: RPM, moment, status
 #define BMW_ID_SPEED      0x1A0   // Vehicle speed
-#define BMW_ID_COOLANT    0x19E   // DME2: temperatura płynu/oleju
+#define BMW_ID_COOLANT    0x329   // DME2: temperatura płynu/oleju
 
 // ID magistraly Toyota 2JZ (nasłuchiwane)
 // Uwaga: ID mogą się różnić w zależności od rocznika/wersji ECU.
@@ -424,7 +424,7 @@ void sendSpeed() {
   }
 }
 
-// ─── Ramka temperatury (0x19E — DME2) ─────────────────────────────
+// ─── Ramka temperatury (0x329 — DME2) ─────────────────────────────
 void sendCoolantTemp() {
   // Konwersja: ((celsius + 48) * 4) / 3 (z zabezpieczeniem przepełnienia)
   uint16_t temp_coolant = ((uint16_t)coolant_temp_c + 48) * 4 / 3;

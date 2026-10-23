@@ -52,8 +52,10 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #define WIFI_SSID "2JZ-E92-Translator"
+// SECURITY WARNING: default credentials — change before deployment!
 #define WIFI_PASS "translator123"   // ZMIEŃ przed wdrożeniem!
 #define DASH_USER "admin"
+// SECURITY WARNING: default credentials — change before deployment!
 #define DASH_PASS "admin123"       // ZMIEŃ przed wdrożeniem!
 static WebServer webServer(80);
 static bool wifiReady = false;
@@ -111,11 +113,8 @@ void handleStatus() { if (!checkAuth()) return;
   json += "\"rpm\":" + String(rpm_2jz) + ",";
   json += "\"speed\":" + String(speed_2jz_kmh) + ",";
   json += "\"coolant\":" + String(coolant_temp_c) + ",";
-  json += "\"oil\":" + String(coolant_temp_c) + ",";  // TODO: oil temp sensor
-  json += "\"rxrate\":42,\"txrate\":20,\"errors\":" + String(canErrors) + ",\"lastrx\":0.05,";
-  json += "\"rxcount\":" + String(rxCount) + ",\"txcount\":" + String(txCount) + ",\"clients\":1,\"uptime\":0,";
-  json += "\"torque\":0,\"voltage\":13.8";
-  json += "}";
+  json += "\"rxrate\":" + String(rxCount) + ",\"txrate\":" + String(txCount) + ",\"errors\":" + String(canErrors) + ",\"lastrx\":" + String((millis() - lastRecvTime) / 1000.0, 2) + ",";
+  json += "\"rxcount\":" + String(rxCount) + ",\"txcount\":" + String(txCount) + ",\"clients\":1,\"uptime\":" + String(millis() / 1000) + "}";
   webServer.send(200, "application/json", json);
 }
 
@@ -253,10 +252,16 @@ void setup() {
 // ─── Loop ──────────────────────────────────────────────────────────
 void loop() {
   // Odbierz wszystkie ramki CAN z magistraly 2JZ (issue #8 — nie tylko jedną)
-  while (mcp2515.readMessage(&canMsg) == MCP2515::ERROR_OK) {
-    lastRecvTime = millis();
-    processIncomingFrame();
-  }
+  MCP2515::ERROR rxErr;
+  do {
+    rxErr = mcp2515.readMessage(&canMsg);
+    if (rxErr == MCP2515::ERROR_OK) {
+      lastRecvTime = millis();
+      processIncomingFrame();
+    } else if (rxErr != MCP2515::ERROR_NOMSG) {
+      if (canErrors < 255) canErrors++;
+    }
+  } while (rxErr == MCP2515::ERROR_OK);
 
   // Wysyłaj przetworzone dane do BMW E92 co 50ms
   if (millis() - lastSendTime >= CAN_SEND_INTERVAL_MS) {
@@ -300,10 +305,15 @@ void processIncomingFrame() {
       break;
 
     case TOYOTA_ID_SPEED:
-      speed_2jz_kmh = (int16_t)((canMsg.data[0] << 8) | canMsg.data[1]);
-      // Prędkość walidowana tylko przez pole 12-bitowe (max 409.5 km/h)
-      // — brak dodatkowego clampu, żeby test 12-bitowego limitu przechodził.
-      speedUpdated = true;
+      {
+        int16_t raw = (int16_t)((canMsg.data[0] << 8) | canMsg.data[1]);
+        raw &= 0x0FFF;
+        if (raw & 0x0800) raw |= 0xF000;   // sign extension (12-bit signed)
+        speed_2jz_kmh = raw;
+        if (speed_2jz_kmh > MAX_SPEED) speed_2jz_kmh = MAX_SPEED;
+        if (speed_2jz_kmh < -MAX_SPEED) speed_2jz_kmh = -MAX_SPEED;
+        speedUpdated = true;
+      }
       break;
 
     case TOYOTA_ID_TEMP:
@@ -352,6 +362,7 @@ void sendRPM() {
     Serial.print(rpm_2jz);
     Serial.println(F(" rpm"));
   } else {
+    if (canErrors < 255) canErrors++;
     Serial.println(F("[ERR] Nie udało się wysłać RPM"));
   }
 }
@@ -408,6 +419,7 @@ void sendSpeed() {
     Serial.print(speed_2jz_kmh);
     Serial.println(F(" km/h"));
   } else {
+    if (canErrors < 255) canErrors++;
     Serial.println(F("[ERR] Nie udało się wysłać prędkości"));
   }
 }
@@ -435,6 +447,7 @@ void sendCoolantTemp() {
     Serial.print(coolant_temp_c);
     Serial.println(F(" °C"));
   } else {
+    if (canErrors < 255) canErrors++;
     Serial.println(F("[ERR] Nie udało się wysłać temperatury"));
   }
 }
